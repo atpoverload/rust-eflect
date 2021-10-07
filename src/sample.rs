@@ -1,146 +1,111 @@
 // Structures and methods for sampled data. Kept things discrete to take advantage of match.
-use std::fs::{read_dir, read_to_string};
-use std::path::PathBuf;
+use std::fs;
+use std::io;
 use std::process;
-use std::time::Instant;
-use std::cmp::Ordering;
+use std::time::SystemTime;
 
-#[derive(Debug, Clone, Copy)]
-pub struct TaskSample {
-    pub timestamp: Instant,
-    pub id: u32,
-    pub cpu: u32,
-    pub user: u128,
-    pub system: u128
-}
+use procfs::{CpuTime, KernelStats};
+use procfs::process::{Process, Stat};
 
-#[derive(Debug, Clone, Copy)]
-pub struct CpuSample {
-    pub timestamp: Instant,
-    pub cpu: u32,
-    pub user: u128,
-    pub nice: u128,
-    pub system: u128,
-    pub idle: u128,
-    pub iowait: u128,
-    pub irq: u128,
-    pub softirq: u128,
-    pub steal: u128,
-    pub guest: u128,
-    pub guest_nice: u128
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct EnergySample {
-    pub timestamp: Instant,
-    pub socket: u32,
-    pub core: f32,
-    pub dram: f32,
-    pub gpu: f32,
-    pub package: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum Sample {
-    Task(TaskSample),
     Cpu(CpuSample),
-    Energy(EnergySample),
+    Task(TaskSample),
+    Rapl(RaplSample)
 }
 
-impl Sample {
-    pub fn get_timestamp(&self) -> Instant {
-        match self {
-            Sample::Task(task) => task.timestamp,
-            Sample::Cpu(cpu) => cpu.timestamp,
-            Sample::Energy(energy) => energy.timestamp,
+#[derive(Debug)]
+pub struct TaskSample {
+    pub timestamp: u128,
+    pub tasks: Option<Vec<Stat>>
+}
+
+impl TaskSample {
+    pub fn new() -> Sample {
+        TaskSample::for_pid(process::id() as i32)
+    }
+
+    pub fn for_pid(id: i32) -> Sample {
+        Sample::Task(TaskSample {
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+            tasks: sample_tasks(id)
+        })
+    }
+}
+
+fn sample_tasks(pid: i32) -> Option<Vec<Stat>> {
+    if let Ok(main) = Process::new(pid) {
+        if let Ok(tasks) = main.tasks() {
+            return Some(tasks.flatten().map(|t| t.stat().unwrap()).collect())
         }
     }
+    None
+}
 
-    // this is a bad hack
-    pub(crate) fn key(&self) -> u32 {
-        match self {
-            Sample::Task(..) => 0,
-            Sample::Cpu(..) => 1,
-            Sample::Energy(..) => 2,
-        }
+#[derive(Debug)]
+pub struct CpuSample {
+    pub timestamp: u128,
+    pub cpus: Option<Vec<CpuTime>>
+}
+
+impl CpuSample {
+    pub fn new() -> Sample {
+        Sample::Cpu(CpuSample {
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+            cpus: sample_cpus(),
+        })
     }
 }
 
-impl PartialEq for Sample {
-    fn eq(&self, other: &Self) -> bool {
-        self.get_timestamp() == other.get_timestamp()
+fn sample_cpus() -> Option<Vec<CpuTime>> {
+    match KernelStats::new() {
+        Ok(stats) => Some(stats.cpu_time),
+        _ => None
     }
 }
 
-impl Eq for Sample {}
+#[derive(Debug)]
+pub struct RaplReading {
+    pub socket: u32,
+    pub dram: u64,
+    pub pkg: u64
+}
 
-impl PartialOrd for Sample {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.get_timestamp().partial_cmp(&other.get_timestamp())
+#[derive(Debug)]
+pub struct RaplSample {
+    pub timestamp: u128,
+    pub readings: Option<Vec<RaplReading>>
+}
+
+impl RaplSample {
+    pub fn new() -> Sample {
+        Sample::Rapl(RaplSample {
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+            readings: sample_rapl(),
+        })
     }
 }
 
-impl Ord for Sample {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.get_timestamp().cmp(&other.get_timestamp())
-    }
+fn sample_rapl() -> Option<Vec<RaplReading>> {
+    Some((0..2).map(sample_socket).filter_map(Result::ok).collect())
 }
 
-// Method to sample data from /proc/[pid]/task/[tid]/stat; refer to
-// https://man7.org/linux/man-pages/man5/proc.5.html for details about /proc
-static ENTRY_COUNT: usize = 52;
-
-pub fn sample_tasks(pid: u32) -> Vec<Sample> {
-    let start = Instant::now();
-    read_dir(["/proc", &pid.to_string(), "task"].iter().collect::<PathBuf>())
-        .unwrap()
-        .map(|task| -> Sample {
-            let mut stat = task.unwrap().path();
-            stat.push("stat");
-            let stats = read_to_string(stat).unwrap();
-            let stats: Vec<&str> = stats.split(' ').collect();
-            let offset = stats.len() - ENTRY_COUNT;
-
-            Sample::Task(TaskSample {
-                timestamp: start,
-                id: stats[0].parse().unwrap(),
-                cpu: stats[38 + offset].parse().unwrap(),
-                user: stats[13 + offset].parse().unwrap(),
-                system: stats[14 + offset].parse().unwrap(),
-            })
-        }).collect()
+fn sample_socket(socket: u32) -> Result<RaplReading, io::Error> {
+    Ok(RaplReading {
+        socket,
+        dram: parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}:0/energy_uj", socket)),
+        pkg: parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}/energy_uj", socket))
+    })
 }
 
-// Method to sample data from /proc/stat; refer to
-// https://man7.org/linux/man-pages/man5/proc.5.html for details about /proc
-pub fn sample_cpus() -> Vec<Sample> {
-    let start = Instant::now();
-    read_to_string(["/proc", "stat"].iter().collect::<PathBuf>())
-        .unwrap()
-        .split('\n')
-        .skip(1) // first entry is system total
-        .take_while(|stat| {stat.contains("cpu")})
-        .map(|stat| -> Sample {
-            let stats: Vec<&str> = stat.split(' ').collect();
-            Sample::Cpu(CpuSample {
-                timestamp: start,
-                cpu: stats[0][3..].parse().unwrap(),
-                user: stats[1].parse().unwrap(),
-                nice: stats[2].parse().unwrap(),
-                system: stats[3].parse().unwrap(),
-                idle: stats[4].parse().unwrap(),
-                iowait: stats[5].parse().unwrap(),
-                irq: stats[6].parse().unwrap(),
-                softirq: stats[7].parse().unwrap(),
-                steal: stats[8].parse().unwrap(),
-                guest: stats[9].parse().unwrap(),
-                guest_nice: stats[10].parse().unwrap(),
-            })
-        }).collect()
+fn parse_rapl_energy(rapl_energy_file: String) -> u64 {
+    fs::read_to_string(rapl_energy_file).unwrap().trim().parse().unwrap()
 }
-
-// add to this as needed
-pub(crate) static SOURCES: [fn() -> Vec<Sample>; 2] = [
-    || sample_tasks(process::id()),
-    || sample_cpus(),
-];

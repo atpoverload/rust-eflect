@@ -1,15 +1,16 @@
-use crate::sample::{Sample, SOURCES};
-
+use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::sample::{Sample, CpuSample, TaskSample, RaplSample};
+
 static DEFAULT_PERIOD_MS: u64 = 50;
-static DEFAULT_PERIOD: Duration = Duration::from_millis(DEFAULT_PERIOD_MS);
 
 pub struct Eflect {
+    pid: i32,
     period: Duration,
     is_running: Arc<AtomicBool>,
     sender: Sender<Sample>,
@@ -18,28 +19,21 @@ pub struct Eflect {
 
 impl Eflect {
     pub fn new() -> Eflect {
-        let (sender, receiver) = channel::<Sample>();
-        Eflect {
-            period: DEFAULT_PERIOD,
-            is_running: Arc::new(AtomicBool::new(false)),
-            sender,
-            receiver,
-        }
+        Eflect::with_period(DEFAULT_PERIOD_MS)
     }
 
-    pub fn with_period(period: Duration) -> Eflect {
-        let (sender, receiver) = channel::<Sample>();
-        Eflect {
-            period,
-            is_running: Arc::new(AtomicBool::new(false)),
-            sender,
-            receiver,
-        }
+    pub fn with_period(period: u64) -> Eflect {
+        Eflect::for_process_with_period(process::id() as i32, period)
     }
 
-    pub fn with_period_ms(period: u64) -> Eflect {
+    pub fn for_process(pid: i32) -> Eflect {
+        Eflect::for_process_with_period(pid, DEFAULT_PERIOD_MS)
+    }
+
+    pub fn for_process_with_period(pid: i32, period: u64) -> Eflect {
         let (sender, receiver) = channel::<Sample>();
         Eflect {
+            pid,
             period: Duration::from_millis(period),
             is_running: Arc::new(AtomicBool::new(false)),
             sender,
@@ -49,22 +43,10 @@ impl Eflect {
 
     pub fn start(&mut self) {
         self.is_running.store(true, Ordering::Relaxed);
-
-        for source in SOURCES {
-            let is_running = self.is_running.clone();
-            let sender = self.sender.clone();
-            let period = self.period;
-
-            thread::spawn(move || {
-                while is_running.load(Ordering::Relaxed) {
-                    let start = Instant::now();
-                    source()
-                        .iter()
-                        .for_each(|&sample| { sender.send(sample).unwrap(); });
-                    thread::sleep(period - (Instant::now() - start));
-                }
-            });
-        }
+        let pid = self.pid.clone();
+        self.collect_from(move || TaskSample::for_pid(pid));
+        self.collect_from(|| CpuSample::new());
+        self.collect_from(|| RaplSample::new());
     }
 
     pub fn stop(&mut self) {
@@ -77,6 +59,23 @@ impl Eflect {
             data.push(sample);
         }
         data
+    }
+
+    fn collect_from<F>(&self, mut source: F)
+        where F: FnMut() -> Sample + Send + Sync + Clone + 'static {
+        let is_running = self.is_running.clone();
+        let sender = self.sender.clone();
+        let period = self.period;
+
+        thread::spawn(move || {
+            while is_running.load(Ordering::Relaxed) {
+                let start = Instant::now();
+                // if let sample = source() {
+                sender.send(source()).unwrap();
+                // }
+                thread::sleep(period - (Instant::now() - start));
+            }
+        });
     }
 }
 
