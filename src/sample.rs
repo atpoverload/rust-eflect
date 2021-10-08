@@ -1,109 +1,142 @@
 // Structures and methods for sampled data. Kept things discrete to take advantage of match.
 use std::fs;
 use std::io;
-use std::process;
 use std::time::SystemTime;
 
 use procfs::{CpuTime, KernelStats};
 use procfs::process::{Process, Stat};
 
+use crate::protos::jiffies::{CpuSample, CpuStat, TaskSample, TaskStat};
+use crate::protos::rapl::{RaplReading, RaplSample};
+
+// outer sample struct so we can do type operations
 pub enum Sample {
     Cpu(CpuSample),
     Task(TaskSample),
     Rapl(RaplSample)
 }
 
-#[derive(Debug)]
-pub struct TaskSample {
-    pub timestamp: u128,
-    pub tasks: Option<Vec<Stat>>
-}
-
-impl TaskSample {
-    pub fn new() -> Sample {
-        TaskSample::for_pid(process::id() as i32)
-    }
-
-    pub fn for_pid(id: i32) -> Sample {
-        Sample::Task(TaskSample {
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
-            tasks: sample_tasks(id)
-        })
+impl Sample {
+    pub fn get_timestamp(&self) -> u64 {
+        match self {
+            Sample::Cpu(sample) => sample.get_timestamp(),
+            Sample::Task(sample) => sample.get_timestamp(),
+            Sample::Rapl(sample) => sample.get_timestamp(),
+        }
     }
 }
 
-fn sample_tasks(pid: i32) -> Option<Vec<Stat>> {
+// code to sample /proc/stat
+pub fn sample_cpus() -> Sample {
+    let mut sample = CpuSample::new();
+    sample.set_timestamp(SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64);
+    if let Some(cpus) = read_cpus() {
+        cpus.into_iter().for_each(|stat| sample.stats.push(stat));
+    };
+    Sample::Cpu(sample)
+}
+
+
+fn read_cpus() -> Option<Vec<CpuStat>> {
+    match KernelStats::new() {
+        Ok(stats) => Some(stats.cpu_time
+            .into_iter()
+            .enumerate()
+            .map(|(cpu, stat)| cpu_stat_to_proto(cpu as u32, stat))
+            .collect()
+        ),
+        _ => None
+    }
+}
+
+fn cpu_stat_to_proto(cpu: u32, stat: CpuTime) -> CpuStat {
+    let mut stat_proto = CpuStat::new();
+    stat_proto.set_cpu(cpu);
+    stat_proto.set_user(stat.user as u32);
+    stat_proto.set_nice(stat.nice as u32);
+    stat_proto.set_system(stat.system as u32);
+    stat_proto.set_idle(stat.idle as u32);
+    if let Some(jiffies) = stat.iowait {
+        stat_proto.set_iowait(jiffies as u32);
+    };
+    if let Some(jiffies) = stat.irq {
+        stat_proto.set_irq(jiffies as u32);
+    };
+    if let Some(jiffies) = stat.softirq {
+        stat_proto.set_softirq(jiffies as u32);
+    };
+    if let Some(jiffies) = stat.steal {
+        stat_proto.set_steal(jiffies as u32);
+    };
+    if let Some(jiffies) = stat.guest {
+        stat_proto.set_guest(jiffies as u32);
+    };
+    if let Some(jiffies) = stat.guest_nice {
+        stat_proto.set_guest_nice(jiffies as u32);
+    };
+    stat_proto
+}
+
+// code to sample /proc/[pid]/task/[tid]/stat
+pub fn sample_tasks(pid: i32) -> Sample {
+    let mut sample = TaskSample::new();
+    sample.set_timestamp(SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64);
+    if let Some(tasks) = read_tasks(pid) {
+        tasks.into_iter().for_each(|s| sample.stats.push(s));
+    };
+    Sample::Task(sample)
+}
+
+fn read_tasks(pid: i32) -> Option<Vec<TaskStat>> {
     if let Ok(main) = Process::new(pid) {
         if let Ok(tasks) = main.tasks() {
-            return Some(tasks.flatten().map(|t| t.stat().unwrap()).collect())
+            return Some(tasks.flatten().map(|stat| task_stat_to_proto(stat.stat().unwrap())).collect())
         }
     }
     None
 }
 
-#[derive(Debug)]
-pub struct CpuSample {
-    pub timestamp: u128,
-    pub cpus: Option<Vec<CpuTime>>
+fn task_stat_to_proto(stat: Stat) -> TaskStat {
+    let mut stat_proto = TaskStat::new();
+    stat_proto.set_thread_id(stat.pid as u32);
+    if let Some(cpu) = stat.processor {
+        stat_proto.set_cpu(cpu as u32);
+        stat_proto.set_user(stat.cutime as u32);
+        stat_proto.set_system(stat.cstime as u32);
+    };
+    stat_proto
 }
 
-impl CpuSample {
-    pub fn new() -> Sample {
-        Sample::Cpu(CpuSample {
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
-            cpus: sample_cpus(),
-        })
-    }
+// code to sample /sys/class/powercap
+pub fn sample_rapl() -> Sample {
+    let mut sample = RaplSample::new();
+    sample.set_timestamp(SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64);
+    if let Some(reading) = read_rapl() {
+        reading.into_iter().for_each(|reading| sample.readings.push(reading));
+    };
+    Sample::Rapl(sample)
 }
 
-fn sample_cpus() -> Option<Vec<CpuTime>> {
-    match KernelStats::new() {
-        Ok(stats) => Some(stats.cpu_time),
-        _ => None
-    }
+fn read_rapl() -> Option<Vec<RaplReading>> {
+    // TODO(timur): get a generic mapping for any system instead of just vaporeon
+    Some((0..2).map(read_socket).filter_map(Result::ok).collect())
 }
 
-#[derive(Debug)]
-pub struct RaplReading {
-    pub socket: u32,
-    pub dram: u64,
-    pub pkg: u64
-}
-
-#[derive(Debug)]
-pub struct RaplSample {
-    pub timestamp: u128,
-    pub readings: Option<Vec<RaplReading>>
-}
-
-impl RaplSample {
-    pub fn new() -> Sample {
-        Sample::Rapl(RaplSample {
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
-            readings: sample_rapl(),
-        })
-    }
-}
-
-fn sample_rapl() -> Option<Vec<RaplReading>> {
-    Some((0..2).map(sample_socket).filter_map(Result::ok).collect())
-}
-
-fn sample_socket(socket: u32) -> Result<RaplReading, io::Error> {
-    Ok(RaplReading {
-        socket,
-        dram: parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}:0/energy_uj", socket)),
-        pkg: parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}/energy_uj", socket))
-    })
+fn read_socket(socket: u32) -> Result<RaplReading, io::Error> {
+    let mut reading = RaplReading::new();
+    reading.set_socket(socket);
+    reading.set_dram(parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}:0/energy_uj", socket)));
+    reading.set_package(parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}/energy_uj", socket)));
+    Ok(reading)
 }
 
 fn parse_rapl_energy(rapl_energy_file: String) -> u64 {

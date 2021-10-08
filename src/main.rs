@@ -4,13 +4,11 @@ use std::thread;
 use std::time::Duration;
 
 use clap::App;
-use ctrlc;
 use procfs::process::Process;
 use protobuf::Message;
 use protobuf::ProtobufError;
 
-use eflect::Eflect;
-use eflect::json::write_data;
+use eflect::Sampler;
 
 fn main() {
     let matches = App::new("eflect")
@@ -23,9 +21,9 @@ fn main() {
         if let Ok(pid) = pid.parse() {
             println!("EFLECT: monitoring process {:?}", pid);
             // build the collector
-            let mut eflector = match matches.value_of("period") {
-                Some(period) => Eflect::for_process_with_period(pid, period.parse().unwrap()),
-                None => Eflect::for_process(pid)
+            let mut sampler = match matches.value_of("period") {
+                Some(period) => Sampler::for_process_with_period(pid, period.parse().unwrap()),
+                None => Sampler::for_process(pid)
             };
 
             let running = Arc::new(AtomicBool::new(true));
@@ -36,7 +34,7 @@ fn main() {
             }).expect("Error setting Ctrl-C handler");
 
             // profile the running process
-            eflector.start();
+            sampler.start();
 
             if let Ok(process) = Process::new(pid) {
                 while process.is_alive() & running.load(Ordering::SeqCst) {
@@ -44,31 +42,20 @@ fn main() {
                 }
             }
 
-            eflector.stop();
+            sampler.stop();
 
             // write the data
-            let samples = eflector.read();
-            let output = match matches.value_of("output") {
+            let data_set = sampler.read();
+            let filename = match matches.value_of("period") {
                 Some(filename) => filename,
                 None => "eflect-data.pb"
             };
-
-            let mut data_set = eflect_stack_trace::StackTraceDataSet::new();
-            self.traces_to_proto().into_iter().for_each(|trace| data_set.samples.push(trace));
-            self.frames_to_proto().into_iter().for_each(|frame| data_set.frames.push(frame));
-            // self.add_traces(&data_set);
-            // self.add_frames(&data_set);
-            match data_set.write_to_writer(w) {
+            let mut out_file = std::fs::File::create(&filename).unwrap();
+            match data_set.write_to_writer(&mut out_file) {
                 // this is the only possible failure since i filled the proto
-                Err(ProtobufError::IoError(err)) => bail!(err),
-                _ => Ok(())
-            }
-
-            if let Err(error) = write_data(samples, output.to_string()) {
-                println!("EFLECT: failed to write data: {:?}", error);
-            } else {
-                println!("EFLECT: wrote data for process {:?}", pid);
-            }
+                Err(ProtobufError::IoError(error)) => println!("EFLECT: failed to write data: {:?}", error),
+                _ => println!("EFLECT: wrote data for process {:?} at {:?}", pid, out_file)
+            };
         };
     } else {
         println!("no pid was provided!");

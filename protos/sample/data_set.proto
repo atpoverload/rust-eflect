@@ -1,0 +1,15 @@
+syntax = "proto2";
+
+package eflect.protos.sample;
+
+import "protos/sample/jiffies.proto";
+import "protos/sample/rapl.proto";
+
+message EflectDataSet {
+  // energy data
+  repeated RaplSample rapl = 1;
+
+  // jiffies data
+  repeated CpuSample cpu = 2;
+  repeated TaskSample task = 3;
+}

@@ -1,0 +1,3 @@
+ - add logging
+  - make the logging prettier
+  - should we have verbosity about errors during sampling?

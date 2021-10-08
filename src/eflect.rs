@@ -5,11 +5,12 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::sample::{Sample, CpuSample, TaskSample, RaplSample};
+use crate::protos::data_set::EflectDataSet;
+use crate::sample::{Sample, sample_cpus, sample_rapl, sample_tasks};
 
 static DEFAULT_PERIOD_MS: u64 = 50;
 
-pub struct Eflect {
+pub struct Sampler {
     pid: i32,
     period: Duration,
     is_running: Arc<AtomicBool>,
@@ -17,22 +18,22 @@ pub struct Eflect {
     receiver: Receiver<Sample>,
 }
 
-impl Eflect {
-    pub fn new() -> Eflect {
-        Eflect::with_period(DEFAULT_PERIOD_MS)
+impl Sampler {
+    pub fn new() -> Sampler {
+        Sampler::with_period(DEFAULT_PERIOD_MS)
     }
 
-    pub fn with_period(period: u64) -> Eflect {
-        Eflect::for_process_with_period(process::id() as i32, period)
+    pub fn with_period(period: u64) -> Sampler {
+        Sampler::for_process_with_period(process::id() as i32, period)
     }
 
-    pub fn for_process(pid: i32) -> Eflect {
-        Eflect::for_process_with_period(pid, DEFAULT_PERIOD_MS)
+    pub fn for_process(pid: i32) -> Sampler {
+        Sampler::for_process_with_period(pid, DEFAULT_PERIOD_MS)
     }
 
-    pub fn for_process_with_period(pid: i32, period: u64) -> Eflect {
+    pub fn for_process_with_period(pid: i32, period: u64) -> Sampler {
         let (sender, receiver) = channel::<Sample>();
-        Eflect {
+        Sampler {
             pid,
             period: Duration::from_millis(period),
             is_running: Arc::new(AtomicBool::new(false)),
@@ -43,22 +44,26 @@ impl Eflect {
 
     pub fn start(&mut self) {
         self.is_running.store(true, Ordering::Relaxed);
-        let pid = self.pid.clone();
-        self.collect_from(move || TaskSample::for_pid(pid));
-        self.collect_from(|| CpuSample::new());
-        self.collect_from(|| RaplSample::new());
+        let pid = self.pid;
+        self.collect_from(sample_cpus);
+        self.collect_from(sample_rapl);
+        self.collect_from(move || sample_tasks(pid));
     }
 
     pub fn stop(&mut self) {
         self.is_running.store(false, Ordering::Relaxed);
     }
 
-    pub fn read(&mut self) -> Vec<Sample> {
-        let mut data: Vec<Sample> = Vec::new();
+    pub fn read(&mut self) -> EflectDataSet {
+        let mut data_set = EflectDataSet::new();
         while let Ok(sample) = self.receiver.try_recv() {
-            data.push(sample);
+            match sample {
+                Sample::Cpu(sample) => data_set.cpu.push(sample),
+                Sample::Task(sample) => data_set.task.push(sample),
+                Sample::Rapl(sample) => data_set.rapl.push(sample)
+            }
         }
-        data
+        data_set
     }
 
     fn collect_from<F>(&self, mut source: F)
@@ -70,17 +75,15 @@ impl Eflect {
         thread::spawn(move || {
             while is_running.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                // if let sample = source() {
                 sender.send(source()).unwrap();
-                // }
                 thread::sleep(period - (Instant::now() - start));
             }
         });
     }
 }
 
-impl Default for Eflect {
-    fn default() -> Eflect {
-        Eflect::new()
+impl Default for Sampler {
+    fn default() -> Sampler {
+        Sampler::new()
     }
 }

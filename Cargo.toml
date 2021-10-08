@@ -2,3 +2,9 @@
 name = "eflect"
 version = "0.0.0"
 edition = "2018"
+
+[dependencies]
+procfs = "0.10.1"
+clap = "2.33.3"
+ctrlc = "3"
+protobuf = "2.25.1"
