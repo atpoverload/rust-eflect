@@ -16,16 +16,6 @@ pub enum Sample {
     Rapl(RaplSample)
 }
 
-impl Sample {
-    pub fn get_timestamp(&self) -> u64 {
-        match self {
-            Sample::Cpu(sample) => sample.get_timestamp(),
-            Sample::Task(sample) => sample.get_timestamp(),
-            Sample::Rapl(sample) => sample.get_timestamp(),
-        }
-    }
-}
-
 // TODO(timur): make real error handling
 pub struct SamplingError {
     pub message: String

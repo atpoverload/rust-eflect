@@ -1,7 +1,7 @@
 mod eflect;
 
 mod protos;
-
-pub mod sample;
+mod sample;
 
 pub use eflect::Sampler;
+pub use protos::data_set::EflectDataSet;
