@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::time::SystemTime;
 
-use procfs::{CpuTime, KernelStats};
+use procfs::{CpuTime, KernelStats, ProcError};
 use procfs::process::{Process, Stat};
 
 use crate::protos::jiffies::{CpuSample, CpuStat, TaskSample, TaskStat};
@@ -26,30 +26,33 @@ impl Sample {
     }
 }
 
-// code to sample /proc/stat
-pub fn sample_cpus() -> Sample {
-    let mut sample = CpuSample::new();
-    sample.set_timestamp(SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64);
-    if let Some(cpus) = read_cpus() {
-        cpus.into_iter().for_each(|stat| sample.stats.push(stat));
-    };
-    Sample::Cpu(sample)
+// TODO(timur): make real error handling
+pub struct SamplingError {
+    pub message: String
 }
 
-
-fn read_cpus() -> Option<Vec<CpuStat>> {
-    match KernelStats::new() {
-        Ok(stats) => Some(stats.cpu_time
-            .into_iter()
-            .enumerate()
-            .map(|(cpu, stat)| cpu_stat_to_proto(cpu as u32, stat))
-            .collect()
-        ),
-        _ => None
+// code to sample /proc/stat
+pub fn sample_cpus() -> Result<Sample, SamplingError> {
+    match read_cpus() {
+        Ok(stats) => {
+            let mut sample = CpuSample::new();
+            sample.set_timestamp(SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64);
+            stats.into_iter().for_each(|stat| sample.stats.push(stat));
+            Ok(Sample::Cpu(sample))
+        },
+        _ => Err(SamplingError{message: "there was an error with proc".to_string()})
     }
+}
+
+fn read_cpus() -> Result<Vec<CpuStat>, ProcError> {
+    Ok(KernelStats::new()?.cpu_time
+        .into_iter()
+        .enumerate()
+        .map(|(cpu, stat)| cpu_stat_to_proto(cpu as u32, stat))
+        .collect())
 }
 
 fn cpu_stat_to_proto(cpu: u32, stat: CpuTime) -> CpuStat {
@@ -81,25 +84,25 @@ fn cpu_stat_to_proto(cpu: u32, stat: CpuTime) -> CpuStat {
 }
 
 // code to sample /proc/[pid]/task/[tid]/stat
-pub fn sample_tasks(pid: i32) -> Sample {
-    let mut sample = TaskSample::new();
-    sample.set_timestamp(SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64);
-    if let Some(tasks) = read_tasks(pid) {
+pub fn sample_tasks(pid: i32) -> Result<Sample, SamplingError> {
+    if let Ok(tasks) = read_tasks(pid) {
+        let mut sample = TaskSample::new();
+        sample.set_timestamp(SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64);
         tasks.into_iter().for_each(|s| sample.stats.push(s));
-    };
-    Sample::Task(sample)
+        Ok(Sample::Task(sample))
+    } else {
+        Err(SamplingError{message: "there was an error with proc".to_string()})
+    }
 }
 
-fn read_tasks(pid: i32) -> Option<Vec<TaskStat>> {
-    if let Ok(main) = Process::new(pid) {
-        if let Ok(tasks) = main.tasks() {
-            return Some(tasks.flatten().map(|stat| task_stat_to_proto(stat.stat().unwrap())).collect())
-        }
-    }
-    None
+fn read_tasks(pid: i32) -> Result<Vec<TaskStat>, ProcError> {
+    Ok(Process::new(pid)?.tasks()?
+        .flatten()
+        .map(|stat| task_stat_to_proto(stat.stat().unwrap()))
+        .collect())
 }
 
 fn task_stat_to_proto(stat: Stat) -> TaskStat {
@@ -114,31 +117,41 @@ fn task_stat_to_proto(stat: Stat) -> TaskStat {
 }
 
 // code to sample /sys/class/powercap
-pub fn sample_rapl() -> Sample {
-    let mut sample = RaplSample::new();
-    sample.set_timestamp(SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64);
-    if let Some(reading) = read_rapl() {
+pub fn sample_rapl() -> Result<Sample, SamplingError> {
+    if let Ok(reading) = read_rapl() {
+        let mut sample = RaplSample::new();
+        sample.set_timestamp(SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64);
         reading.into_iter().for_each(|reading| sample.readings.push(reading));
-    };
-    Sample::Rapl(sample)
+        Ok(Sample::Rapl(sample))
+    } else {
+        Err(SamplingError{message: "there was an error reading /sys/class/powercap".to_string()})
+    }
 }
 
-fn read_rapl() -> Option<Vec<RaplReading>> {
-    // TODO(timur): get a generic mapping for any system instead of just vaporeon
-    Some((0..2).map(read_socket).filter_map(Result::ok).collect())
+// TODO(timur): implement handling for N domains
+fn read_rapl() -> Result<Vec<RaplReading>, SamplingError> {
+    let readings: Vec<RaplReading> = (0..2)
+        .map(read_socket)
+        .filter_map(Result::ok)
+        .collect();
+    if !readings.is_empty() {
+        Ok(readings)
+    } else {
+        Err(SamplingError{message: "there was an error reading /sys/class/powercap".to_string()})
+    }
 }
 
 fn read_socket(socket: u32) -> Result<RaplReading, io::Error> {
     let mut reading = RaplReading::new();
     reading.set_socket(socket);
-    reading.set_dram(parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}:0/energy_uj", socket)));
-    reading.set_package(parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}/energy_uj", socket)));
+    reading.set_package(parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}/energy_uj", socket))?);
+    reading.set_dram(parse_rapl_energy(format!("/sys/class/powercap/intel-rapl:{}:0/energy_uj", socket))?);
     Ok(reading)
 }
 
-fn parse_rapl_energy(rapl_energy_file: String) -> u64 {
-    fs::read_to_string(rapl_energy_file).unwrap().trim().parse().unwrap()
+fn parse_rapl_energy(rapl_energy_file: String) -> Result<u64, io::Error> {
+    Ok(fs::read_to_string(rapl_energy_file)?.trim().parse().unwrap())
 }

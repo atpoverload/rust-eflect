@@ -12,7 +12,7 @@ use eflect::Sampler;
 
 fn main() {
     let matches = App::new("eflect")
-                      .arg_from_usage("<pid> 'The id of the process to monitor'")
+                      .arg_from_usage("--pid=<pid> 'The id of the process to monitor'")
                       .arg_from_usage("-p, --period=[PERIOD] 'The sampling period in milliseconds'")
                       .arg_from_usage("-o, --output=[OUTPUT] 'Location to write the output data'")
                       .get_matches();
@@ -46,11 +46,7 @@ fn main() {
 
             // write the data
             let data_set = sampler.read();
-            let filename = match matches.value_of("period") {
-                Some(filename) => filename,
-                None => "eflect-data.pb"
-            };
-            let mut out_file = std::fs::File::create(&filename).unwrap();
+            let mut out_file = std::fs::File::create(&matches.value_of("period").unwrap_or("eflect-data.pb")).unwrap();
             match data_set.write_to_writer(&mut out_file) {
                 // this is the only possible failure since i filled the proto
                 Err(ProtobufError::IoError(error)) => println!("EFLECT: failed to write data: {:?}", error),

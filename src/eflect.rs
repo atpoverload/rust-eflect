@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::protos::data_set::EflectDataSet;
-use crate::sample::{Sample, sample_cpus, sample_rapl, sample_tasks};
+use crate::sample::{Sample, SamplingError, sample_cpus, sample_rapl, sample_tasks};
 
 static DEFAULT_PERIOD_MS: u64 = 50;
 
@@ -45,9 +45,9 @@ impl Sampler {
     pub fn start(&mut self) {
         self.is_running.store(true, Ordering::Relaxed);
         let pid = self.pid;
-        self.collect_from(sample_cpus);
-        self.collect_from(sample_rapl);
-        self.collect_from(move || sample_tasks(pid));
+        self.start_sampling_from(sample_cpus);
+        self.start_sampling_from(sample_rapl);
+        self.start_sampling_from(move || sample_tasks(pid));
     }
 
     pub fn stop(&mut self) {
@@ -66,8 +66,8 @@ impl Sampler {
         data_set
     }
 
-    fn collect_from<F>(&self, mut source: F)
-        where F: FnMut() -> Sample + Send + Sync + Clone + 'static {
+    fn start_sampling_from<F>(&self, mut source: F)
+        where F: FnMut() -> Result<Sample, SamplingError> + Send + Sync + Clone + 'static {
         let is_running = self.is_running.clone();
         let sender = self.sender.clone();
         let period = self.period;
@@ -75,7 +75,14 @@ impl Sampler {
         thread::spawn(move || {
             while is_running.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                sender.send(source()).unwrap();
+                // TODO(timur): make the logging configurable?
+                // match source() {
+                //     Ok(sample) => sender.send(sample).unwrap(),
+                //     Err(error) => println!("{}", error.message)
+                // };
+                if let Ok(sample) = source() {
+                    sender.send(sample).unwrap();
+                }
                 thread::sleep(period - (Instant::now() - start));
             }
         });
