@@ -1,4 +1,4 @@
-// Structures and methods for sampled data. Kept things discrete to take advantage of match.
+// Structures and methods for sampled data.
 use std::fs;
 use std::io;
 use std::time::SystemTime;
@@ -9,7 +9,7 @@ use procfs::process::{Process, Stat};
 use crate::protos::jiffies::{CpuSample, CpuStat, TaskSample, TaskStat};
 use crate::protos::rapl::{RaplReading, RaplSample};
 
-// outer sample struct so we can do type operations
+// enum wrapper around the proto
 pub enum Sample {
     Cpu(CpuSample),
     Task(TaskSample),
@@ -97,7 +97,7 @@ fn read_tasks(pid: i32) -> Result<Vec<TaskStat>, ProcError> {
 
 fn task_stat_to_proto(stat: Stat) -> TaskStat {
     let mut stat_proto = TaskStat::new();
-    stat_proto.set_thread_id(stat.pid as u32);
+    stat_proto.set_task_id(stat.pid as u32);
     if let Some(cpu) = stat.processor {
         stat_proto.set_cpu(cpu as u32);
         stat_proto.set_user(stat.cutime as u32);

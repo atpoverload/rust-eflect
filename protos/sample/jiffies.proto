@@ -22,7 +22,7 @@ message CpuSample {
 }
 
 message TaskStat {
-  required uint32 thread_id = 1;
+  required uint32 task_id = 1;
   required uint32 cpu = 2;
   optional uint32 user = 3;
   optional uint32 system = 4;

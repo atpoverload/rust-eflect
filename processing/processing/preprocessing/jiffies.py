@@ -65,7 +65,7 @@ def parse_task_samples(samples):
         for stat in sample.stats:
             records.append([
                 sample.timestamp,
-                stat.thread_id,
+                stat.task_id,
                 # stat.thread_name,
                 stat.cpu,
                 stat.user,

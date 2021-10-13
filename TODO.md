@@ -1,3 +1,13 @@
  - add logging
   - make the logging prettier
   - should we have verbosity about errors during sampling?
+ - design pub/sub server
+  - break process monitor out
+  - should handle rpc and https requests
+  - should this be done in c?
+ - online processing
+  - we have a sketch that doesn't use protos
+ - we need to write some tests
+  - tests to check the environment
+   - smoke test for jiffies and rapl
+   - report the system specs
