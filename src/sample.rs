@@ -10,6 +10,13 @@ use crate::protos::jiffies::{CpuSample, CpuStat, TaskSample, TaskStat};
 use crate::protos::rapl::{RaplReading, RaplSample};
 use crate::protos::sample::{Sample};
 
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
 // TODO(timur): make real error handling
 pub struct SamplingError {
     pub message: String
@@ -20,10 +27,7 @@ pub fn sample_cpus() -> Result<Sample, SamplingError> {
     match read_cpus() {
         Ok(stats) => {
             let mut sample = CpuSample::new();
-            sample.set_timestamp(SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64);
+            sample.set_timestamp(now_ms());
             stats.into_iter().for_each(|stat| sample.stat.push(stat));
             let mut s = Sample::new();
             s.set_cpu(sample);
@@ -73,10 +77,7 @@ fn cpu_stat_to_proto(cpu: u32, stat: CpuTime) -> CpuStat {
 pub fn sample_tasks(pid: i32) -> Result<Sample, SamplingError> {
     if let Ok(tasks) = read_tasks(pid) {
         let mut sample = TaskSample::new();
-        sample.set_timestamp(SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64);
+        sample.set_timestamp(now_ms());
         tasks.into_iter().for_each(|s| sample.stat.push(s));
         let mut s = Sample::new();
         s.set_task(sample);
@@ -108,10 +109,7 @@ fn task_stat_to_proto(stat: Stat) -> TaskStat {
 pub fn sample_rapl() -> Result<Sample, SamplingError> {
     if let Ok(reading) = read_rapl() {
         let mut sample = RaplSample::new();
-        sample.set_timestamp(SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64);
+        sample.set_timestamp(now_ms());
         reading.into_iter().for_each(|reading| sample.reading.push(reading));
         let mut s = Sample::new();
         s.set_rapl(sample);
@@ -144,4 +142,65 @@ fn read_socket(socket: u32) -> Result<RaplReading, io::Error> {
 
 fn parse_rapl_energy(rapl_energy_file: String) -> Result<u64, io::Error> {
     Ok(fs::read_to_string(rapl_energy_file)?.trim().parse().unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use procfs::CpuInfo;
+    use procfs::process::Process;
+
+    use crate::protos::sample::{Sample_oneof_data};
+
+    #[test]
+    // make sure sample_cpus returns the right data type
+    fn jiffies_smoke_test() {
+        let start = now_ms();
+        if let Ok(sample) = sample_cpus() {
+            if let Some(Sample_oneof_data::cpu(sample)) = sample.data {
+                assert!(sample.get_timestamp() <= now_ms());
+                assert!(sample.get_timestamp() >= start);
+                // TODO(timur): make sure that there's no duplicate cpus
+                assert_eq!(sample.stat.len(), CpuInfo::new().unwrap().num_cores());
+            } else {
+                panic!("sampling cpus failed; data other than CpuSample returned");
+            };
+        } else {
+            panic!("sampling cpus failed; /proc/stat couldn't be read");
+        };
+
+        let start = now_ms();
+        let me = Process::myself().unwrap();
+        if let Ok(sample) = sample_tasks(me.pid) {
+            if let Some(Sample_oneof_data::task(sample)) = sample.data {
+                assert!(sample.get_timestamp() <= now_ms());
+                assert!(sample.get_timestamp() >= start);
+                // TODO(timur): no good way to check if the threads in there are valid
+                assert_eq!(sample.stat.len(), me.tasks().unwrap().count());
+            } else {
+                panic!("sampling tasks failed; data other than TaskSample returned");
+            };
+        } else {
+            panic!("sampling tasks failed; /proc/[pid]/task couldn't be read");
+        };
+    }
+
+    #[test]
+    // make sure we have rapl (/sys/class/powercap) and that we read all the values
+    fn rapl_smoke_test() {
+        let start = now_ms();
+        if let Ok(sample) = sample_rapl() {
+            if let Some(Sample_oneof_data::rapl(sample)) = sample.data {
+                assert!(sample.get_timestamp() <= now_ms());
+                assert!(sample.get_timestamp() >= start);
+                // TODO(timur): have to check for components
+                // assert_eq!(sample.stat.len(), CpuInfo::new().unwrap().num_cores());
+            } else {
+                panic!("sampling rapl failed; data other than RaplSample returned");
+            };
+        } else {
+            panic!("sampling rapl failed; /sys/class/powercap couldn't be read");
+        };
+    }
 }
