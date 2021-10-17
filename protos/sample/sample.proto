@@ -5,7 +5,21 @@ package eflect.protos.sample;
 import "protos/sample/jiffies.proto";
 import "protos/sample/rapl.proto";
 
-message EflectDataSet {
+option java_multiple_files = true;
+option java_package = "eflect.protos.sample";
+
+message Sample {
+  oneof data {
+    // energy data
+    RaplSample rapl = 1;
+
+    // jiffies data
+    CpuSample cpu = 2;
+    TaskSample task = 3;
+  }
+}
+
+message DataSet {
   // energy data
   repeated RaplSample rapl = 1;
 

@@ -4,4 +4,4 @@ mod protos;
 mod sample;
 
 pub use eflect::Sampler;
-pub use protos::data_set::EflectDataSet;
+pub use protos::sample::DataSet;

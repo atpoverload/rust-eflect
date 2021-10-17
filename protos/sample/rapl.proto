@@ -2,6 +2,9 @@ syntax = "proto2";
 
 package eflect.protos.sample;
 
+option java_multiple_files = true;
+option java_package = "eflect.protos.sample";
+
 message RaplReading {
   required uint32 socket = 2;
   optional uint64 cpu = 3;
@@ -12,5 +15,5 @@ message RaplReading {
 
 message RaplSample {
   required uint64 timestamp = 1;
-  repeated RaplReading readings = 2;
+  repeated RaplReading reading = 2;
 }

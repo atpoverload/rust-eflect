@@ -8,13 +8,7 @@ use procfs::process::{Process, Stat};
 
 use crate::protos::jiffies::{CpuSample, CpuStat, TaskSample, TaskStat};
 use crate::protos::rapl::{RaplReading, RaplSample};
-
-// enum wrapper around the proto
-pub enum Sample {
-    Cpu(CpuSample),
-    Task(TaskSample),
-    Rapl(RaplSample)
-}
+use crate::protos::sample::{Sample};
 
 // TODO(timur): make real error handling
 pub struct SamplingError {
@@ -30,8 +24,10 @@ pub fn sample_cpus() -> Result<Sample, SamplingError> {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as u64);
-            stats.into_iter().for_each(|stat| sample.stats.push(stat));
-            Ok(Sample::Cpu(sample))
+            stats.into_iter().for_each(|stat| sample.stat.push(stat));
+            let mut s = Sample::new();
+            s.set_cpu(sample);
+            Ok(s)
         },
         _ => Err(SamplingError{message: "there was an error with proc".to_string()})
     }
@@ -81,8 +77,10 @@ pub fn sample_tasks(pid: i32) -> Result<Sample, SamplingError> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64);
-        tasks.into_iter().for_each(|s| sample.stats.push(s));
-        Ok(Sample::Task(sample))
+        tasks.into_iter().for_each(|s| sample.stat.push(s));
+        let mut s = Sample::new();
+        s.set_task(sample);
+        Ok(s)
     } else {
         Err(SamplingError{message: "there was an error with proc".to_string()})
     }
@@ -114,8 +112,10 @@ pub fn sample_rapl() -> Result<Sample, SamplingError> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64);
-        reading.into_iter().for_each(|reading| sample.readings.push(reading));
-        Ok(Sample::Rapl(sample))
+        reading.into_iter().for_each(|reading| sample.reading.push(reading));
+        let mut s = Sample::new();
+        s.set_rapl(sample);
+        Ok(s)
     } else {
         Err(SamplingError{message: "there was an error reading /sys/class/powercap".to_string()})
     }

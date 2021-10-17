@@ -5,8 +5,8 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::protos::data_set::EflectDataSet;
-use crate::sample::{Sample, SamplingError, sample_cpus, sample_rapl, sample_tasks};
+use crate::protos::sample::{DataSet, Sample, Sample_oneof_data};
+use crate::sample::{SamplingError, sample_cpus, sample_rapl, sample_tasks};
 
 static DEFAULT_PERIOD_MS: u64 = 50;
 
@@ -54,13 +54,14 @@ impl Sampler {
         self.is_running.store(false, Ordering::Relaxed);
     }
 
-    pub fn read(&mut self) -> EflectDataSet {
-        let mut data_set = EflectDataSet::new();
+    pub fn read(&mut self) -> DataSet {
+        let mut data_set = DataSet::new();
         while let Ok(sample) = self.receiver.try_recv() {
-            match sample {
-                Sample::Cpu(sample) => data_set.cpu.push(sample),
-                Sample::Task(sample) => data_set.task.push(sample),
-                Sample::Rapl(sample) => data_set.rapl.push(sample)
+            match sample.data {
+                Some(Sample_oneof_data::cpu(sample)) => data_set.cpu.push(sample),
+                Some(Sample_oneof_data::task(sample)) => data_set.task.push(sample),
+                Some(Sample_oneof_data::rapl(sample)) => data_set.rapl.push(sample),
+                _ => println!("no sample found!")
             }
         }
         data_set
