@@ -5,7 +5,7 @@ import os
 from argparse import ArgumentParser
 
 from processing import compute_footprint
-from protos.sample.data_set_pb2 import EflectDataSet
+from protos.sample.sample_pb2 import DataSet
 
 def parse_eflect_args():
     parser = ArgumentParser()
@@ -30,7 +30,7 @@ def parse_eflect_args():
 def load_data_set(data_set_path):
     """ Loads an EflectDataSet from the path. """
     with open(data_set_path, 'rb') as f:
-        data_set = EflectDataSet()
+        data_set = DataSet()
         data_set.ParseFromString(f.read())
         return data_set
 

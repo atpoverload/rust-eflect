@@ -9,7 +9,7 @@ def parse_cpu_samples(samples):
     """ Converts a collection of CpuSample to a DataFrame. """
     records = []
     for sample in samples:
-        for stat in sample.stats:
+        for stat in sample.stat:
             records.append([
                 sample.timestamp,
                 stat.cpu,
@@ -62,11 +62,11 @@ def parse_task_samples(samples):
     """ Converts a collection of TaskSamples to a DataFrame. """
     records = []
     for sample in samples:
-        for stat in sample.stats:
+        for stat in sample.stat:
             records.append([
                 sample.timestamp,
                 stat.task_id,
-                # stat.thread_name,
+                # stat.task_name,
                 stat.cpu,
                 stat.user,
                 stat.system

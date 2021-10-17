@@ -11,7 +11,7 @@ def parse_rapl_samples(samples):
     """ Converts a collection of RaplSamples to a DataFrame. """
     records = []
     for sample in samples:
-        for reading in sample.readings:
+        for reading in sample.reading:
             records.append([
                 sample.timestamp,
                 reading.socket,
