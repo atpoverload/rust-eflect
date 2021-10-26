@@ -90,7 +90,8 @@ pub fn sample_tasks(pid: i32) -> Result<Sample, SamplingError> {
 fn read_tasks(pid: i32) -> Result<Vec<TaskStat>, ProcError> {
     Ok(Process::new(pid)?.tasks()?
         .flatten()
-        .map(|stat| task_stat_to_proto(stat.stat().unwrap()))
+        .filter_map(|stat| stat.stat().ok())
+        .map(|stat| task_stat_to_proto(stat))
         .collect())
 }
 
