@@ -100,8 +100,8 @@ fn task_stat_to_proto(stat: Stat) -> TaskStat {
     stat_proto.set_task_id(stat.pid as u32);
     if let Some(cpu) = stat.processor {
         stat_proto.set_cpu(cpu as u32);
-        stat_proto.set_user(stat.cutime as u32);
-        stat_proto.set_system(stat.cstime as u32);
+        stat_proto.set_user(stat.utime as u32);
+        stat_proto.set_system(stat.stime as u32);
     };
     stat_proto
 }
