@@ -8,7 +8,7 @@ use procfs::process::{Process, Stat};
 
 use crate::protos::jiffies::{CpuSample, CpuStat, TaskSample, TaskStat};
 use crate::protos::rapl::{RaplReading, RaplSample};
-use crate::protos::sample::{Sample};
+use crate::protos::sample::Sample;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -152,7 +152,7 @@ mod tests {
     use procfs::CpuInfo;
     use procfs::process::Process;
 
-    use crate::protos::sample::{Sample_oneof_data};
+    use crate::protos::sample::Sample_oneof_data;
 
     #[test]
     // make sure sample_cpus returns the right data type

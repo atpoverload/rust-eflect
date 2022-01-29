@@ -8,6 +8,8 @@ clap = "2.33.3"
 ctrlc = "3"
 procfs = "0.10.1"
 protobuf = "2.25.1"
+grpc            = "~0.8"
+futures         = "~0.3"
 
 [build-dependencies]
-protoc-rust = "2.0"
+protoc-rust-grpc = "~0.8"

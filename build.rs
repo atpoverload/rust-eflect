@@ -1,4 +1,4 @@
-extern crate protoc_rust;
+extern crate protoc_rust_grpc;
 
 use std::fs;
 use std::path::Path;
@@ -11,16 +11,16 @@ fn build_protos() -> std::io::Result<()> {
         fs::remove_dir_all(protos)?;
     }
     fs::create_dir(protos)?;
-    protoc_rust::Codegen::new()
+    protoc_rust_grpc::Codegen::new()
         .out_dir(protos)
         .inputs(&[
             "protos/sample/jiffies.proto",
             "protos/sample/rapl.proto",
             "protos/sample/sample.proto",
         ])
-        .include(".")
+        .rust_protobuf(true)
         .run()
-        .expect("protoc");
+        .expect("protoc-rust-grpc");
     let mod_path = proto_path.to_owned() + "/mod.rs";
     fs::write(mod_path, "pub mod sample;\npub mod jiffies;\npub mod rapl;\n")?;
     Ok(())
