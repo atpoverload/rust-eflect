@@ -13,7 +13,7 @@ Cargo.lock
 __pycache__
 
 *_pb2.py
-src/protos
+*_pb2_grpc.py
 
 *.csv
 *.pb

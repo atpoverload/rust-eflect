@@ -1,31 +1,12 @@
-extern crate protoc_rust_grpc;
+extern crate tonic_build;
 
-use std::fs;
-use std::path::Path;
-
-// builds the sample protos and a mod.rs to make them importable
-fn build_protos() -> std::io::Result<()> {
-    let proto_path = "src/protos";
-    let protos = Path::new(proto_path);
-    if protos.exists() {
-        fs::remove_dir_all(protos)?;
-    }
-    fs::create_dir(protos)?;
-    protoc_rust_grpc::Codegen::new()
-        .out_dir(protos)
-        .inputs(&[
+fn main() -> std::io::Result<()> {
+    tonic_build::configure()
+        .compile(&[
             "protos/sample/jiffies.proto",
             "protos/sample/rapl.proto",
             "protos/sample/sample.proto",
-        ])
-        .rust_protobuf(true)
-        .run()
-        .expect("protoc-rust-grpc");
-    let mod_path = proto_path.to_owned() + "/mod.rs";
-    fs::write(mod_path, "pub mod sample;\npub mod jiffies;\npub mod rapl;\n")?;
+            "protos/sample/sampler.proto"
+        ], &["."])?;
     Ok(())
-}
-
-fn main() -> std::io::Result<()> {
-    build_protos()
 }
