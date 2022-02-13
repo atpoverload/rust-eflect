@@ -1,7 +1,11 @@
+mod protos {
+    tonic::include_proto!("eflect.protos.sample");
+}
+
 use clap::App;
 
-use eflect::protos::sampler_client::SamplerClient;
-use eflect::protos::{ReadRequest, StartRequest, StopRequest};
+use protos::sampler_client::SamplerClient;
+use protos::{ReadRequest, StartRequest, StopRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

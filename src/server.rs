@@ -1,3 +1,6 @@
+// a simple server implementation for eflect on linux. only one process can be monitored at a time.
+// /proc/stat, /proc/pid/task, and /sys/class/powercap are each sampled from their own thread.
+// TODO(timur): switch to an executor so we can divide up the readings?
 mod protos {
     tonic::include_proto!("eflect.protos.sample");
 }
@@ -135,7 +138,7 @@ fn sample_rapl() -> Result<Sample, SamplingError> {
     }
 }
 
-// TODO(timur): implement handling for N domains + K components
+// TODO(timur): implement handling for N domains
 fn read_rapl() -> Result<Vec<RaplReading>, SamplingError> {
     let readings: Vec<RaplReading> = (0..2)
         .map(read_socket)
@@ -148,6 +151,7 @@ fn read_rapl() -> Result<Vec<RaplReading>, SamplingError> {
     }
 }
 
+// TODO(timur): implement handling for K components
 fn read_socket(socket: u32) -> Result<RaplReading, io::Error> {
     let mut reading = RaplReading::default();
     reading.socket = socket;
@@ -236,6 +240,7 @@ impl SamplerImpl {
         let sender = self.sender.clone();
         let period = self.period;
 
+        // TODO(timur): look into switching to scheduled_executor
         thread::spawn(move || {
                 while is_running.load(Ordering::Relaxed) {
                     let start = Instant::now();

@@ -43,7 +43,6 @@ def parse_args():
         action='store_true',
         help='whether or not to process the raw data'
     )
-
     args = parser.parse_args()
 
     # check if there is a workload to run
@@ -72,7 +71,7 @@ def main():
 
     if args.workload is not None:
         workload = args.workload[0]
-        # tell eflect to monitor our local workload
+        # tell eflect to monitor our runtime
         stub = SamplerStub(grpc.insecure_channel('[::1]:50051'))
 
         print('starting eflect monitoring of workload')

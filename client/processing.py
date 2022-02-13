@@ -1,7 +1,14 @@
+""" Code used to process data collected by eflect. """
+import os
+
+from argparse import ArgumentParser
+
 import numpy as np
 import pandas as pd
 
 from pandas import to_datetime
+
+from protos.sample.sample_pb2 import DataSet
 
 # processing helpers
 SAMPLE_INTERVAL = '50ms'
@@ -213,3 +220,44 @@ def compute_footprint(data):
     if len(data.rapl) > 0:
         df = account_rapl_energy(activity, data.rapl)
     return df
+
+# cli to process globs of files
+def parse_args():
+    """ Parses client-side arguments. """
+    parser = ArgumentParser()
+    parser.add_argument(
+        dest='files',
+        nargs='*',
+        default=None,
+        help='files to process'
+    )
+    parser.add_argument(
+        '-o',
+        '--output_dir',
+        dest='output',
+        default=None,
+        help='path to write the data to'
+    )
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    for file in args.files:
+        with open(file, 'rb') as f:
+            data = DataSet()
+            data.ParseFromString(f.read())
+        # TODO(timur): i hate that i did this. we need to get the footprint in the proto
+        if args.output:
+            if os.path.exists(args.output) and not os.path.isdir(args.output):
+                raise RuntimeError('output target {} already exists and is not a directory; aborting'.format(args.output))
+            elif not os.path.exists(args.output):
+                os.makedirs(args.output)
+
+            path = os.path.join(args.output, os.path.splitext(os.path.basename(file))[0] + '-footprint.csv')
+        else:
+            path = os.path.splitext(file)[0] + '-footprint.csv'
+        compute_footprint(data).to_csv(path)
+        print('wrote footprint for data set {} at {}'.format(file, path))
+
+if __name__ == '__main__':
+    main()
